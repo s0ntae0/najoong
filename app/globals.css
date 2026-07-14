@@ -1,18 +1,24 @@
 @import "tailwindcss";
 
 @theme {
-  /* 포인트 컬러는 블루 1개, 나머지는 뉴트럴 그레이 */
-  --color-primary: #3182f6;
-  --color-primary-strong: #1b64da;
-  --color-primary-weak: #e8f1fe;
+  /* design.md 팔레트: 포인트는 웜 클레이 1개, 배경은 오프화이트 + 순백(카드만) */
+  --color-primary: #be7250;
+  --color-primary-strong: #a85e3e;
+  --color-primary-weak: #f5ebe4;
 
-  --color-ink: #191f28;
-  --color-ink-sub: #4e5968;
-  --color-ink-weak: #8b95a1;
+  /* 텍스트는 본문/보조 2단계로 통일 (색 강조 금지) */
+  --color-ink: #2b2925;
+  --color-ink-sub: #8b857c;
+  --color-ink-weak: #8b857c;
 
   --color-surface: #ffffff;
-  --color-canvas: #f9fafb;
-  --color-line: #e5e8eb;
+  --color-canvas: #faf9f6;
+  --color-line: #ede9e3;
+
+  /* 컴포넌트의 gray-* 유틸(호버 배경·플레이스홀더)도 웜 그레이로 재정의 */
+  --color-gray-50: #f6f4f0;
+  --color-gray-100: #ede9e3;
+  --color-gray-300: #d9d2c7;
 
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
     "Apple SD Gothic Neo", "Segoe UI", Roboto, sans-serif;

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Link2, Loader2, ArrowRight, Globe, ImageOff } from "lucide-react";
+import { ArrowRight, Globe, ImageOff } from "lucide-react";
 import { findCategory, majorOf } from "@/lib/categories";
-import { GUEST_LIMIT } from "@/lib/storage";
+import { GUEST_LIMIT, GUEST_LIMIT_ENABLED } from "@/lib/storage";
+import DrawerInput from "./DrawerInput";
 
 const METHOD_LABELS = {
   domain: "도메인 규칙",
@@ -47,7 +48,7 @@ export default function HomeView({ onSave, onNavigate, categories, user, guestCo
 
   return (
     <div className="flex min-h-[calc(100dvh-8.5rem)] items-center justify-center px-5 md:min-h-dvh">
-      <div className="w-full max-w-xl -translate-y-8">
+      <div className="w-full max-w-2xl -translate-y-8">
         <h1 className="text-center text-2xl font-bold leading-snug md:text-[28px]">
           나중에 볼 링크, 일단 여기 두세요
         </h1>
@@ -55,36 +56,24 @@ export default function HomeView({ onSave, onNavigate, categories, user, guestCo
           주소를 붙여넣으면 알아서 분류해서 정리해 드려요
         </p>
 
-        <form
+        <DrawerInput
+          value={url}
+          onChange={setUrl}
           onSubmit={handleSubmit}
-          className="mt-8 flex items-center gap-2 rounded-2xl border border-line bg-surface p-2 shadow-sm transition-colors focus-within:border-primary"
-        >
-          <Link2 size={20} className="ml-3 shrink-0 text-ink-weak" />
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https:// 링크 붙여넣기"
-            className="min-w-0 flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-ink-weak"
-          />
-          <button
-            type="submit"
-            disabled={!url.trim() || status === "loading"}
-            className="flex shrink-0 items-center justify-center rounded-xl bg-primary px-5 py-2.5 text-[15px] font-semibold text-white transition-colors hover:bg-primary-strong disabled:opacity-40"
-          >
-            {status === "loading" ? <Loader2 size={18} className="animate-spin" /> : "저장"}
-          </button>
-        </form>
+          loading={status === "loading"}
+        />
 
         {!user && (
           <p className="mt-4 text-center text-xs text-ink-weak">
-            비회원 저장 {Math.min(guestCount, GUEST_LIMIT)}/{GUEST_LIMIT}개 ·{" "}
+            {GUEST_LIMIT_ENABLED && (
+              <>비회원 저장 {Math.min(guestCount, GUEST_LIMIT)}/{GUEST_LIMIT}개 · </>
+            )}
             <button
               type="button"
               onClick={onRequestLogin}
               className="font-medium text-primary hover:text-primary-strong"
             >
-              로그인하고 무제한 저장
+              {GUEST_LIMIT_ENABLED ? "로그인하고 무제한 저장" : "로그인하면 어디서든 볼 수 있어요"}
             </button>
           </p>
         )}

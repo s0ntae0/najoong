@@ -10,6 +10,7 @@ import AuthModal from "@/components/AuthModal";
 import { buildTree, findCategory, majorOf, majorBySlug } from "@/lib/categories";
 import {
   GUEST_LIMIT,
+  GUEST_LIMIT_ENABLED,
   loadGuestLinks,
   saveGuestLinks,
   loadGuestCategories,
@@ -95,7 +96,7 @@ export default function Page() {
   // --- 링크 저장 (게스트 한도 게이트 포함) ---
   const addLink = useCallback(
     async (url) => {
-      if (!user && links.length >= GUEST_LIMIT) {
+      if (!user && GUEST_LIMIT_ENABLED && links.length >= GUEST_LIMIT) {
         setAuthOpen(true);
         return null; // 6번째 시도 → 로그인 모달
       }
@@ -291,7 +292,7 @@ export default function Page() {
       <AuthModal
         open={authOpen}
         onClose={() => setAuthOpen(false)}
-        atLimit={!user && links.length >= GUEST_LIMIT}
+        atLimit={!user && GUEST_LIMIT_ENABLED && links.length >= GUEST_LIMIT}
       />
     </div>
   );

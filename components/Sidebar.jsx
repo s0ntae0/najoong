@@ -16,7 +16,7 @@ import {
   LogOut,
   User,
 } from "lucide-react";
-import { GUEST_LIMIT } from "@/lib/storage";
+import { GUEST_LIMIT, GUEST_LIMIT_ENABLED } from "@/lib/storage";
 
 const MAJOR_ICONS = {
   shopping: ShoppingBag,
@@ -176,9 +176,11 @@ export function SidebarContent({
               <LogIn size={16} />
               로그인
             </button>
-            <p className="mt-2 text-center text-xs text-ink-weak">
-              비회원은 {GUEST_LIMIT}개까지 저장돼요
-            </p>
+            {GUEST_LIMIT_ENABLED && (
+              <p className="mt-2 text-center text-xs text-ink-weak">
+                비회원은 {GUEST_LIMIT}개까지 저장돼요
+              </p>
+            )}
           </>
         )}
       </div>
