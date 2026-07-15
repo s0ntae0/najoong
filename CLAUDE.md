@@ -18,14 +18,23 @@
 - `supabase/schema.sql` — DB 스키마
 
 ## 핵심 개념
-### 자동 분류 파이프라인 (싸고 빠른 순서, 확정되면 중단)
-1. 도메인 규칙 (`lib/domainRules.js`) — 알려진 사이트 즉시 판별, 비용 0
-2. og:type 메타태그 — 등록 안 된 개인 쇼핑몰도 판별, 비용 0
-3. LLM 폴백 — 애매한 것만 (아직 미구현)
-4. 폴백 — 기타
+### 주제 기반 유동 분류
+콘텐츠의 "형식"이 아니라 "주제"로 분류한다. 같은 유튜브 링크라도
+강의면 '공부', 요리 영상이면 '요리'. 고정 카테고리는 없다 —
+대분류(주제)·세부주제 모두 LLM 판정과 사용자 편집으로 만들어진다.
 
-`lib/classify.js`의 `classify({ domain, ogType })`가 담당.
-`{ category, method }` 반환. method는 'domain' | 'og_type' | 'fallback'.
+저장 시 두 단계:
+1. **형식 판정** (`lib/classify.js`의 `detectFormat`) — 도메인 규칙(`lib/domainRules.js`)
+   + og:type으로 영상/상품/아티클/기타 판정. 비용 0. 주제 판정의 힌트로 쓴다.
+2. **주제 판정** (`lib/classifyTopic.js`의 `classifyTopic`, 서버 전용) — Gemini가
+   제목·설명 + 기존 카테고리 목록을 보고 판정. 기존 카테고리 재사용 우선,
+   없을 때만 신규 제안. `{ topic, sub, isNew, method }` 반환.
+   method는 'llm' | 'fallback'. 실패 시 '기타'(FALLBACK_TOPIC)로.
+   같은 도메인+제목은 서버 메모리에 캐싱해 중복 호출 방지.
+
+중복 방지의 최종 방어선은 클라이언트(`app/page.js` addLink)의
+이름 기반 find-or-create — 같은 이름의 카테고리는 항상 재사용된다.
+링크가 0개인 카테고리는 사이드바에 표시하지 않는다 (링크 이동 메뉴에는 표시).
 
 ### 왜 서버가 필요한가
 브라우저에서 외부 사이트를 직접 fetch하면 CORS로 막힌다.

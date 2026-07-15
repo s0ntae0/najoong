@@ -6,11 +6,12 @@ import { findCategory, majorOf } from "@/lib/categories";
 import { GUEST_LIMIT, GUEST_LIMIT_ENABLED } from "@/lib/storage";
 import DrawerInput from "./DrawerInput";
 
+// 주제 판정 방식. domain/og_type은 구버전 저장 링크 호환용.
 const METHOD_LABELS = {
-  domain: "도메인 규칙",
-  og_type: "og:type 메타",
   llm: "AI 분류",
   fallback: "미분류",
+  domain: "도메인 규칙",
+  og_type: "og:type 메타",
 };
 
 export default function HomeView({ onSave, onNavigate, categories, user, guestCount, onRequestLogin }) {

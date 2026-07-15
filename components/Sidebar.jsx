@@ -7,6 +7,7 @@ import {
   Clapperboard,
   Newspaper,
   Archive,
+  Folder,
   ChevronDown,
   Plus,
   MoreHorizontal,
@@ -17,13 +18,21 @@ import {
   User,
 } from "lucide-react";
 import { GUEST_LIMIT, GUEST_LIMIT_ENABLED } from "@/lib/storage";
+import { FALLBACK_TOPIC } from "@/lib/categories";
 
+// 구버전 고정 대분류(slug) 아이콘 호환용 — 새 주제 카테고리는 Folder
 const MAJOR_ICONS = {
   shopping: ShoppingBag,
   video: Clapperboard,
   news: Newspaper,
   etc: Archive,
 };
+
+function majorIcon(major) {
+  if (major.slug && MAJOR_ICONS[major.slug]) return MAJOR_ICONS[major.slug];
+  if (major.name === FALLBACK_TOPIC) return Archive;
+  return Folder;
+}
 
 // 데스크톱 사이드바. 내용(SidebarContent)은 모바일 드로어에서도 재사용.
 export default function Sidebar(props) {
@@ -47,8 +56,9 @@ export function SidebarContent({
   onDeleteCategory,
 }) {
   const [expanded, setExpanded] = useState({});
-  const [addingTo, setAddingTo] = useState(null); // 하위 추가 중인 대분류 id
-  const [editingId, setEditingId] = useState(null); // 이름 변경 중인 하위 id
+  const [addingMajor, setAddingMajor] = useState(false); // 대분류(주제) 추가 중
+  const [addingTo, setAddingTo] = useState(null); // 세부주제 추가 중인 대분류 id
+  const [editingId, setEditingId] = useState(null); // 이름 변경 중인 카테고리 id
 
   const toggle = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
@@ -73,41 +83,52 @@ export function SidebarContent({
           onClick={() => onSelect("home")}
         />
 
-        <p className="px-3 pb-2 pt-6 text-xs font-medium text-ink-weak">카테고리</p>
+        <div className="flex items-center justify-between px-3 pb-2 pt-6">
+          <p className="text-xs font-medium text-ink-weak">카테고리</p>
+          <IconButton label="주제 카테고리 추가" onClick={() => setAddingMajor(true)}>
+            <Plus size={14} />
+          </IconButton>
+        </div>
+
+        {addingMajor && (
+          <InlineInput
+            indent={false}
+            placeholder="새 주제 이름"
+            onSubmit={(name) => {
+              onAddCategory(null, name);
+              setAddingMajor(false);
+            }}
+            onCancel={() => setAddingMajor(false)}
+          />
+        )}
 
         {tree.map((major) => {
-          const Icon = MAJOR_ICONS[major.slug] ?? Archive;
           const isOpen = !!expanded[major.id];
           return (
             <div key={major.id}>
-              <NavRow
-                icon={Icon}
-                label={major.name}
-                count={counts[major.id] || 0}
-                active={selected === major.id}
-                onClick={() => onSelect(major.id)}
-                trailing={
-                  <span className="hidden items-center gap-0.5 group-hover/row:flex">
-                    <IconButton
-                      label={`${major.name}에 하위 카테고리 추가`}
-                      onClick={() => startAdding(major.id)}
-                    >
-                      <Plus size={14} />
-                    </IconButton>
-                    {major.children.length > 0 && (
-                      <IconButton
-                        label={`${major.name} 하위 ${isOpen ? "접기" : "펼치기"}`}
-                        onClick={() => toggle(major.id)}
-                      >
-                        <ChevronDown
-                          size={14}
-                          className={`transition-transform ${isOpen ? "rotate-180" : ""}`}
-                        />
-                      </IconButton>
-                    )}
-                  </span>
-                }
-              />
+              {editingId === major.id ? (
+                <InlineInput
+                  indent={false}
+                  defaultValue={major.name}
+                  onSubmit={(name) => {
+                    onRenameCategory(major.id, name);
+                    setEditingId(null);
+                  }}
+                  onCancel={() => setEditingId(null)}
+                />
+              ) : (
+                <MajorRow
+                  major={major}
+                  count={counts[major.id] || 0}
+                  active={selected === major.id}
+                  isOpen={isOpen}
+                  onClick={() => onSelect(major.id)}
+                  onToggle={() => toggle(major.id)}
+                  onAddSub={() => startAdding(major.id)}
+                  onRename={() => setEditingId(major.id)}
+                  onDelete={() => onDeleteCategory(major.id)}
+                />
+              )}
 
               {isOpen &&
                 major.children.map((sub) =>
@@ -137,7 +158,7 @@ export function SidebarContent({
 
               {addingTo === major.id && (
                 <InlineInput
-                  placeholder="새 카테고리 이름"
+                  placeholder="새 세부주제 이름"
                   onSubmit={(name) => {
                     onAddCategory(major.id, name);
                     setAddingTo(null);
@@ -218,6 +239,85 @@ function NavRow({ icon: Icon, label, count, active, onClick, trailing }) {
         )}
         {trailing}
       </span>
+    </div>
+  );
+}
+
+// 대분류(주제) 행: 세부주제 추가·펼치기 + 이름 변경·삭제 메뉴
+function MajorRow({ major, count, active, isOpen, onClick, onToggle, onAddSub, onRename, onDelete }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const Icon = majorIcon(major);
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    setConfirming(false);
+  };
+
+  return (
+    <div className="relative">
+      <NavRow
+        icon={Icon}
+        label={major.name}
+        count={count}
+        active={active}
+        onClick={onClick}
+        trailing={
+          <span className="hidden items-center gap-0.5 group-hover/row:flex">
+            <IconButton label={`${major.name}에 세부주제 추가`} onClick={onAddSub}>
+              <Plus size={14} />
+            </IconButton>
+            {major.children.length > 0 && (
+              <IconButton
+                label={`${major.name} 세부주제 ${isOpen ? "접기" : "펼치기"}`}
+                onClick={onToggle}
+              >
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform ${isOpen ? "rotate-180" : ""}`}
+                />
+              </IconButton>
+            )}
+            <IconButton label={`${major.name} 관리`} onClick={() => setMenuOpen(true)}>
+              <MoreHorizontal size={14} />
+            </IconButton>
+          </span>
+        }
+      />
+
+      {menuOpen && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={closeMenu} />
+          <div className="absolute right-2 top-8 z-30 w-52 rounded-xl border border-line bg-surface p-1 shadow-lg">
+            <button
+              type="button"
+              onClick={() => {
+                closeMenu();
+                onRename();
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-ink-sub hover:bg-gray-50"
+            >
+              <Pencil size={14} />
+              이름 변경
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!confirming) {
+                  setConfirming(true);
+                  return;
+                }
+                closeMenu();
+                onDelete();
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-red-500 hover:bg-red-50"
+            >
+              <Trash2 size={14} className="shrink-0" />
+              {confirming ? `한 번 더 누르면 삭제 (링크는 ${FALLBACK_TOPIC}로)` : "삭제"}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -303,7 +403,7 @@ function SubRow({ sub, majorName, count, active, onClick, onRename, onDelete }) 
   );
 }
 
-function InlineInput({ defaultValue = "", placeholder, onSubmit, onCancel }) {
+function InlineInput({ defaultValue = "", placeholder, onSubmit, onCancel, indent = true }) {
   const [value, setValue] = useState(defaultValue);
 
   const submit = () => {
@@ -313,7 +413,7 @@ function InlineInput({ defaultValue = "", placeholder, onSubmit, onCancel }) {
   };
 
   return (
-    <div className="py-1 pl-11 pr-3">
+    <div className={`py-1 pr-3 ${indent ? "pl-11" : "pl-3"}`}>
       <input
         autoFocus
         value={value}

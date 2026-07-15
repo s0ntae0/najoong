@@ -1,7 +1,9 @@
 "use client";
 
-import { Home, ShoppingBag, Clapperboard, Newspaper, Archive } from "lucide-react";
+import { Home, ShoppingBag, Clapperboard, Newspaper, Archive, Folder } from "lucide-react";
+import { FALLBACK_TOPIC } from "@/lib/categories";
 
+// 구버전 고정 대분류(slug) 아이콘 호환용 — 새 주제 카테고리는 Folder
 const MAJOR_ICONS = {
   shopping: ShoppingBag,
   video: Clapperboard,
@@ -15,7 +17,9 @@ export default function MobileTabBar({ tree, selected, onSelect }) {
     ...tree.map((major) => ({
       id: major.id,
       name: major.name,
-      icon: MAJOR_ICONS[major.slug] ?? Archive,
+      icon:
+        (major.slug && MAJOR_ICONS[major.slug]) ||
+        (major.name === FALLBACK_TOPIC ? Archive : Folder),
     })),
   ];
 

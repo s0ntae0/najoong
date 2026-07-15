@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { classifyLink } from "@/lib/classify";
+import { detectFormat } from "@/lib/classify";
+import { classifyTopic } from "@/lib/classifyTopic";
 
 // 브라우저처럼 보이는 UA — 일부 커머스/뉴스 사이트가 기본 UA를 차단함
 const USER_AGENT =
@@ -8,7 +9,7 @@ const USER_AGENT =
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
   const rawUrl = typeof body.url === "string" ? body.url.trim() : "";
-  // LLM 프롬프트용 사용자 카테고리 목록: [{ slug, name, subs: [이름] }]
+  // LLM 프롬프트용 사용자 카테고리 목록: [{ name, subs: [이름] }]
   const categories = Array.isArray(body.categories) ? body.categories : [];
 
   let target;
@@ -51,26 +52,33 @@ export async function POST(request) {
   const domain = new URL(finalUrl).hostname.replace(/^www\./, "");
   const parseFailed = fetchFailed || (!httpOk && !meta.title);
 
-  const result = await classifyLink(
-    { domain, ogType: meta.type, title: meta.title, description: meta.description },
-    categories
-  );
+  // 1) 중분류(형식) 판정 — 도메인 룰 + og:type, 비용 0. 주제 판정의 힌트로도 쓴다.
+  const { format } = detectFormat({ domain, ogType: meta.type });
 
-  // LLM이 하위 카테고리를 골랐거나(기존) 새로 제안한 경우
-  const suggestedSub = result.sub
-    ? { name: result.sub, isNew: false }
-    : result.newSub
-      ? { name: result.newSub, isNew: true }
-      : null;
+  // 2) 대분류(주제) 판정 — LLM이 제목·설명 + 기존 카테고리 목록을 보고 판정
+  const result = await classifyTopic({
+    title: meta.title,
+    description: meta.description,
+    domain,
+    format,
+    existingCategories: categories,
+  });
+
+  const isNewSub = result.sub
+    ? !categories.some((c) => c.name === result.topic && (c.subs ?? []).includes(result.sub))
+    : false;
 
   return NextResponse.json({
     url: finalUrl,
     domain,
     ...meta,
     parseFailed,
-    autoCategory: result.category,
-    classifyMethod: result.method,
-    suggestedSub,
+    format, // 형식 (영상/상품/아티클/기타)
+    topic: result.topic, // 대분류(주제)
+    subTopic: result.sub, // 세부주제 (없으면 null)
+    isNewTopic: result.isNew,
+    isNewSub,
+    classifyMethod: result.method, // 'llm' | 'fallback'
   });
 }
 
