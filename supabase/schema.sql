@@ -1,4 +1,7 @@
 -- 나중(Najoong) 스키마. Supabase 대시보드 > SQL Editor에서 전체 실행.
+--
+-- 이미 구버전 테이블이 있는 프로젝트는 아래 업그레이드 구문도 실행:
+--   alter table public.links add column if not exists parse_failed boolean not null default false;
 
 -- ============================================================
 -- profiles: auth.users 연결
@@ -35,15 +38,14 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- ============================================================
--- categories: user_id 소유, parent_id 셀프조인 (대분류/하위)
---   slug: 기본 대분류 매핑용 (shopping/video/news/etc). 커스텀은 null.
+-- categories: user_id 소유, parent_id 셀프조인 (대분류=주제 / 하위=세부주제)
+--   주제 기반 유동 분류: 고정 카테고리 없음, LLM 판정·사용자 편집으로 생성.
 -- ============================================================
 create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
   parent_id uuid references public.categories (id) on delete cascade,
   name text not null,
-  slug text,
   is_default boolean not null default false,
   created_at timestamptz not null default now()
 );
@@ -84,6 +86,16 @@ create policy "links: 본인 전체" on public.links
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ============================================================
+-- 테이블 권한 (GRANT)
+--   RLS 정책은 "행" 필터일 뿐, 롤에 테이블 권한이 없으면 RLS 이전에
+--   permission denied(42501)로 거부된다. 반드시 함께 실행할 것.
+-- ============================================================
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.profiles to authenticated;
+grant select, insert, update, delete on public.categories to authenticated;
+grant select, insert, update, delete on public.links to authenticated;
+
+-- ============================================================
 -- domain_rules: 전역 공유. 읽기 전체 허용 / 쓰기는 service_role만 (정책 없음 = RLS 우회만 가능)
 -- ============================================================
 create table if not exists public.domain_rules (
@@ -97,6 +109,8 @@ alter table public.domain_rules enable row level security;
 
 create policy "domain_rules: 전체 읽기" on public.domain_rules
   for select using (true);
+
+grant select on public.domain_rules to anon, authenticated;
 
 -- 시드 (lib/domainRules.js와 동일)
 insert into public.domain_rules (domain, category) values

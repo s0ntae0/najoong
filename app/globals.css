@@ -29,3 +29,59 @@ body {
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
 }
+
+/* ── 서랍 로그인 애니메이션 (components/DrawerLogin.jsx) ──
+   프로토타입(drawer-login-prototype-v3)의 모션을 그대로 옮김:
+   성공 시 부드럽게 닫힘, 실패 시 걸려서 덜컹, 재입장 시 열림 */
+@keyframes drawer-jam {
+  0%   { transform: translateY(0); }
+  36%  { transform: translateY(-45%); }
+  45%  { transform: translateY(-43%); }
+  58%  { transform: translateY(-4%); }
+  68%  { transform: translateY(0) translateX(-9px); }
+  77%  { transform: translateX(8px); }
+  85%  { transform: translateX(-5px); }
+  92%  { transform: translateX(3px); }
+  100% { transform: translateX(0); }
+}
+@keyframes drawer-close {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-104%); }
+}
+@keyframes drawer-open {
+  0%   { transform: translateY(-104%); }
+  100% { transform: translateY(0); }
+}
+@keyframes cabinet-bump {
+  0%, 100% { transform: translateY(0); }
+  55% { transform: translateY(3px); }
+}
+
+.drawer-login-fail { animation: drawer-jam 0.95s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+.drawer-login-success { animation: drawer-close 0.75s cubic-bezier(0.55, 0, 0.25, 1) both; }
+.drawer-login-reopen { animation: drawer-open 0.55s cubic-bezier(0.3, 0.6, 0.3, 1) both; }
+.drawer-login-bump { animation: cabinet-bump 0.3s ease 0.5s; }
+
+/* 아래 칸 닫힌 면: 서랍이 들어가는 동안 아래에서 차오른다 */
+.drawer-login-face {
+  opacity: 0;
+  transform: translateY(100%);
+  transition: transform 0.45s cubic-bezier(0.55, 0, 0.25, 1), opacity 0.15s;
+}
+.drawer-login-face.closed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-login-fail,
+  .drawer-login-success,
+  .drawer-login-reopen,
+  .drawer-login-bump {
+    animation: none;
+  }
+  .drawer-login-success {
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+}

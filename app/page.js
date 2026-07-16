@@ -6,7 +6,7 @@ import MobileHeader from "@/components/MobileHeader";
 import MobileTabBar from "@/components/MobileTabBar";
 import HomeView from "@/components/HomeView";
 import FeedView from "@/components/FeedView";
-import AuthModal from "@/components/AuthModal";
+import DrawerLogin from "@/components/DrawerLogin";
 import { buildTree, findCategory, findByName, majorOf, FALLBACK_TOPIC } from "@/lib/categories";
 import {
   GUEST_LIMIT,
@@ -355,7 +355,7 @@ export default function Page() {
         )}
       </main>
       <MobileTabBar tree={visibleTree} selected={selected} onSelect={setSelected} />
-      <AuthModal
+      <DrawerLogin
         open={authOpen}
         onClose={() => setAuthOpen(false)}
         atLimit={!user && GUEST_LIMIT_ENABLED && links.length >= GUEST_LIMIT}
