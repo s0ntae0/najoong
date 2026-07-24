@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { detectFormat } from "@/lib/classify";
 import { classifyTopic } from "@/lib/classifyTopic";
 
+// Vercel 함수 실행 제한 상향: 페이지 fetch(최대 8초) + LLM 판정(최대 6초)이
+// 겹치면 Hobby 기본 제한(10초)을 넘을 수 있다.
+export const maxDuration = 30;
+
 // 브라우저처럼 보이는 UA — 일부 커머스/뉴스 사이트가 기본 UA를 차단함
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -12,17 +16,25 @@ export async function POST(request) {
   // LLM 프롬프트용 사용자 카테고리 목록: [{ name, subs: [이름] }]
   const categories = Array.isArray(body.categories) ? body.categories : [];
 
+  // ── 판정 1. URL 형식이 아님 → 저장 거부 ──
+  // 프로토콜 없이 도메인만 입력(naver.com)은 흔한 입력이라 https://를 붙여 시도한다.
   let target;
   try {
     target = new URL(rawUrl.match(/^https?:\/\//i) ? rawUrl : `https://${rawUrl}`);
   } catch {
-    return NextResponse.json({ error: "올바른 URL이 아니에요." }, { status: 400 });
+    return NextResponse.json({ error: "올바르지 않은 주소 형식이에요" }, { status: 400 });
   }
   if (!/^https?:$/.test(target.protocol)) {
-    return NextResponse.json({ error: "http/https 링크만 저장할 수 있어요." }, { status: 400 });
+    return NextResponse.json({ error: "http/https 링크만 저장할 수 있어요" }, { status: 400 });
+  }
+  // "asdf" 같은 입력도 https://asdf로는 URL 파싱이 되므로, 도메인 형태(점 포함)인지로 거른다
+  if (!target.hostname.includes(".")) {
+    return NextResponse.json({ error: "올바르지 않은 주소 형식이에요" }, { status: 400 });
   }
 
-  // 파싱 실패는 에러가 아니라 상태 — 링크는 항상 저장 가능해야 한다
+  // ── 판정 2~3. 페이지 fetch ──
+  // 파싱 실패는 에러가 아니라 상태 — DNS 실패(도메인 자체가 없음)만 저장을 거부하고,
+  // 봇 차단·404·타임아웃·연결 거부 등 그 외 모든 실패는 저장하되 parseFailed로 표시한다.
   let meta = { title: "", description: "", image: "", type: "" };
   let finalUrl = target.href;
   let fetchFailed = false;
@@ -45,12 +57,17 @@ export async function POST(request) {
       const html = decodeBody(await response.arrayBuffer(), contentType);
       meta = extractMeta(html, finalUrl);
     }
-  } catch {
-    fetchFailed = true;
+  } catch (err) {
+    // 판정 2. DNS 조회 실패(ENOTFOUND)만 저장 거부 — 다른 어떤 실패도 이 분기로 보내지 않는다
+    if (err?.cause?.code === "ENOTFOUND") {
+      return NextResponse.json({ error: "연결할 수 없는 주소예요" }, { status: 400 });
+    }
+    fetchFailed = true; // 타임아웃·연결 거부 등 — 저장은 계속
   }
 
   const domain = new URL(finalUrl).hostname.replace(/^www\./, "");
-  const parseFailed = fetchFailed || (!httpOk && !meta.title);
+  // 판정 3. fetch 예외 / HTTP 에러(403·404·429 등) / 제목조차 못 뽑음 → 저장하되 실패 표시
+  const parseFailed = fetchFailed || !httpOk || !meta.title;
 
   // 1) 중분류(형식) 판정 — 도메인 룰 + og:type, 비용 0. 주제 판정의 힌트로도 쓴다.
   const { format } = detectFormat({ domain, ogType: meta.type });

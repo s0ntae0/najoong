@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileHeader from "@/components/MobileHeader";
 import MobileTabBar from "@/components/MobileTabBar";
@@ -41,6 +41,10 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState("home");
   const [authOpen, setAuthOpen] = useState(false);
+  // 실행취소 대기 중인 링크 삭제 (토스트 표시용). 실제 DB 삭제는 유예 후 확정 시점에.
+  const [pendingDelete, setPendingDelete] = useState(null); // { link }
+  const pendingRef = useRef(null); // { link, user } — 확정 시 필요한 스냅샷
+  const pendingTimerRef = useRef(null);
 
   // --- 세션 감지 ---
   useEffect(() => {
@@ -180,13 +184,39 @@ export default function Page() {
     [user, links.length, categories]
   );
 
+  // --- 링크 삭제: 즉시 화면에서 제거하되, 잠깐 실행취소 기회를 준다 ---
+  // 게스트는 links state가 곧 저장소(localStorage 동기화)라 확정 시 할 일이 없고,
+  // 로그인 상태만 확정 시점에 DB에서 지운다.
+  const commitPendingDelete = useCallback(() => {
+    clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = null;
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (pending?.user) db.deleteLink(pending.link.id).catch(console.error);
+    setPendingDelete(null);
+  }, []);
+
   const removeLink = useCallback(
     (id) => {
-      setLinks((prev) => prev.filter((link) => link.id !== id));
-      if (user) db.deleteLink(id).catch(console.error);
+      const link = links.find((l) => l.id === id);
+      if (!link) return;
+      commitPendingDelete(); // 이전 대기 건은 확정
+      setLinks((prev) => prev.filter((l) => l.id !== id));
+      pendingRef.current = { link, user };
+      setPendingDelete({ link });
+      pendingTimerRef.current = setTimeout(commitPendingDelete, 6000);
     },
-    [user]
+    [links, user, commitPendingDelete]
   );
+
+  const undoRemoveLink = useCallback(() => {
+    clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = null;
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (pending) setLinks((prev) => [pending.link, ...prev]);
+    setPendingDelete(null);
+  }, []);
 
   const moveLink = useCallback(
     (id, categoryId) => {
@@ -197,20 +227,21 @@ export default function Page() {
   );
 
   // --- 카테고리 편집 (대분류·세부주제 모두 — AI 판정이 틀리면 사용자가 고친다) ---
+  // 성공 여부를 반환해 사이드바가 중복 이름 등을 안내할 수 있게 한다
   const addCategory = useCallback(
     async (parentId, name) => {
-      if (findByName(categories, name, parentId ?? null)) return; // 같은 이름 중복 방지
+      if (findByName(categories, name, parentId ?? null)) return false; // 같은 이름 중복 방지
       const category = user
         ? await db.insertCategory(user.id, parentId ?? null, name).catch((err) => {
             console.error(err);
             return null;
           })
         : guestCategory(name, parentId ?? null);
-      if (category) {
-        setCategories((prev) =>
-          findByName(prev, name, parentId ?? null) ? prev : [...prev, category]
-        );
-      }
+      if (!category) return false;
+      setCategories((prev) =>
+        findByName(prev, name, parentId ?? null) ? prev : [...prev, category]
+      );
+      return true;
     },
     [user, categories]
   );
@@ -218,40 +249,50 @@ export default function Page() {
   const renameCategory = useCallback(
     (id, name) => {
       const category = findCategory(categories, id);
-      if (!category || category.name === name) return;
-      if (findByName(categories, name, category.parentId ?? null)) return; // 같은 이름 중복 방지
+      if (!category) return false;
+      if (category.name === name) return true; // 그대로 — 변경 없음
+      if (findByName(categories, name, category.parentId ?? null)) return false; // 같은 이름 중복 방지
       setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
       if (user) db.renameCategory(id, name).catch(console.error);
+      return true;
     },
     [user, categories]
   );
 
+  // deleteLinks: true면 소속 링크도 함께 삭제, false(기본·안전)면 링크는 보존
+  // — 세부주제는 대분류로, 대분류는 '기타'로 이동
   const deleteCategory = useCallback(
-    async (id) => {
+    async (id, { deleteLinks = false } = {}) => {
       const category = findCategory(categories, id);
       if (!category) return;
 
-      // 세부주제: 소속 링크는 대분류로 이동
+      // 세부주제
       if (category.parentId) {
-        setLinks((prev) =>
-          prev.map((l) => (l.categoryId === id ? { ...l, categoryId: category.parentId } : l))
-        );
+        if (deleteLinks) {
+          setLinks((prev) => prev.filter((l) => l.categoryId !== id));
+          if (user) db.deleteCategoryTree([id], null, true).catch(console.error);
+        } else {
+          setLinks((prev) =>
+            prev.map((l) => (l.categoryId === id ? { ...l, categoryId: category.parentId } : l))
+          );
+          if (user) db.deleteCategory(id, category.parentId).catch(console.error);
+        }
         setCategories((prev) => prev.filter((c) => c.id !== id));
         setSelected((prev) => (prev === id ? category.parentId : prev));
-        if (user) db.deleteCategory(id, category.parentId).catch(console.error);
         return;
       }
 
-      // 대분류: 세부주제까지 함께 삭제, 소속 링크는 '기타'로 이동
+      // 대분류: 세부주제까지 함께 삭제
       const childIds = categories.filter((c) => c.parentId === id).map((c) => c.id);
       const removedIds = new Set([id, ...childIds]);
       const hasLinks = links.some((l) => removedIds.has(l.categoryId));
 
-      // '기타' 자체는 링크가 남아 있으면 삭제 불가 (링크가 갈 곳이 없다)
-      if (hasLinks && category.name === FALLBACK_TOPIC) return;
-
       let etc = null;
-      if (hasLinks) {
+      if (hasLinks && deleteLinks) {
+        setLinks((prev) => prev.filter((l) => !removedIds.has(l.categoryId)));
+      } else if (hasLinks) {
+        // '기타' 자체는 링크 보존 이동이 불가 (갈 곳이 없다) — UI에서 막고 여기서도 방어
+        if (category.name === FALLBACK_TOPIC) return;
         etc = findByName(categories, FALLBACK_TOPIC, null);
         if (!etc) {
           etc = user
@@ -274,7 +315,8 @@ export default function Page() {
         return next;
       });
       setSelected((prev) => (removedIds.has(prev) ? "home" : prev));
-      if (user) db.deleteCategoryTree([id, ...childIds], etc?.id ?? null).catch(console.error);
+      if (user)
+        db.deleteCategoryTree([id, ...childIds], etc?.id ?? null, deleteLinks).catch(console.error);
     },
     [user, categories, links]
   );
@@ -297,16 +339,6 @@ export default function Page() {
     return result;
   }, [links, categories]);
 
-  // 사이드바·탭바용: 링크가 하나도 없는 카테고리는 표시하지 않는다.
-  // (링크 이동 메뉴는 빈 카테고리로도 옮길 수 있어야 하므로 전체 tree를 쓴다)
-  const visibleTree = useMemo(
-    () =>
-      tree
-        .map((m) => ({ ...m, children: m.children.filter((c) => counts[c.id] > 0) }))
-        .filter((m) => counts[m.id] > 0),
-    [tree, counts]
-  );
-
   const visibleLinks = useMemo(() => {
     if (selected === "home") return [];
     return links.filter(
@@ -316,7 +348,7 @@ export default function Page() {
   }, [links, categories, selected]);
 
   const navProps = {
-    tree: visibleTree,
+    tree,
     counts,
     selected,
     onSelect: setSelected,
@@ -354,7 +386,20 @@ export default function Page() {
           />
         )}
       </main>
-      <MobileTabBar tree={visibleTree} selected={selected} onSelect={setSelected} />
+      <MobileTabBar tree={tree} selected={selected} onSelect={setSelected} />
+      {/* 링크 삭제 실행취소 토스트 */}
+      {pendingDelete && (
+        <div className="fixed bottom-24 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-line bg-surface py-2.5 pl-4 pr-3 shadow-lg md:bottom-8">
+          <span className="whitespace-nowrap text-sm text-ink-sub">링크를 삭제했어요</span>
+          <button
+            type="button"
+            onClick={undoRemoveLink}
+            className="whitespace-nowrap rounded-lg px-2 py-1 text-sm font-semibold text-primary transition-colors hover:bg-primary-weak"
+          >
+            실행취소
+          </button>
+        </div>
+      )}
       <DrawerLogin
         open={authOpen}
         onClose={() => setAuthOpen(false)}

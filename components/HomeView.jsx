@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Globe, ImageOff } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { findCategory, majorOf } from "@/lib/categories";
 import { GUEST_LIMIT, GUEST_LIMIT_ENABLED } from "@/lib/storage";
 import DrawerInput from "./DrawerInput";
+import DomainThumb from "./DomainThumb";
 
 // 주제 판정 방식. domain/og_type은 구버전 저장 링크 호환용.
 const METHOD_LABELS = {
@@ -111,18 +112,18 @@ export default function HomeView({ onSave, onNavigate, categories, user, guestCo
                   className="h-12 w-16 shrink-0 rounded-lg bg-gray-100 object-cover"
                 />
               ) : (
-                <div className="flex h-12 w-16 shrink-0 items-center justify-center rounded-lg bg-gray-50">
-                  {saved.parseFailed ? (
-                    <ImageOff size={16} className="text-gray-300" />
-                  ) : (
-                    <Globe size={16} className="text-gray-300" />
-                  )}
-                </div>
+                <DomainThumb
+                  domain={saved.domain}
+                  className="h-12 w-16 rounded-lg"
+                  letterClassName="text-sm"
+                />
               )}
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{saved.title}</p>
+                <p className="truncate text-sm font-medium">
+                  {saved.parseFailed ? saved.domain : saved.title}
+                </p>
                 <p className="mt-0.5 truncate text-xs text-ink-weak">
-                  {saved.parseFailed ? "미리보기 정보를 불러오지 못했어요" : saved.domain}
+                  {saved.parseFailed ? "정보를 불러오지 못했어요" : saved.domain}
                 </p>
               </div>
             </div>

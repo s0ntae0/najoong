@@ -8,6 +8,7 @@ import {
   Newspaper,
   Archive,
   Folder,
+  FolderInput,
   ChevronDown,
   Plus,
   MoreHorizontal,
@@ -32,6 +33,14 @@ function majorIcon(major) {
   if (major.slug && MAJOR_ICONS[major.slug]) return MAJOR_ICONS[major.slug];
   if (major.name === FALLBACK_TOPIC) return Archive;
   return Folder;
+}
+
+// "기타로 / 공부로 / 프로그래밍으로" — 받침에 따라 조사 선택 (한글 아니면 '(으)로')
+function withRo(word) {
+  const code = word.charCodeAt(word.length - 1);
+  if (code < 0xac00 || code > 0xd7a3) return `${word}(으)로`;
+  const jong = (code - 0xac00) % 28;
+  return jong === 0 || jong === 8 ? `${word}로` : `${word}으로`;
 }
 
 // 데스크톱 사이드바. 내용(SidebarContent)은 모바일 드로어에서도 재사용.
@@ -94,9 +103,10 @@ export function SidebarContent({
           <InlineInput
             indent={false}
             placeholder="새 주제 이름"
-            onSubmit={(name) => {
-              onAddCategory(null, name);
-              setAddingMajor(false);
+            onSubmit={async (name) => {
+              const ok = await onAddCategory(null, name);
+              if (ok) setAddingMajor(false);
+              return ok;
             }}
             onCancel={() => setAddingMajor(false)}
           />
@@ -111,8 +121,9 @@ export function SidebarContent({
                   indent={false}
                   defaultValue={major.name}
                   onSubmit={(name) => {
-                    onRenameCategory(major.id, name);
-                    setEditingId(null);
+                    const ok = onRenameCategory(major.id, name);
+                    if (ok !== false) setEditingId(null);
+                    return ok;
                   }}
                   onCancel={() => setEditingId(null)}
                 />
@@ -126,7 +137,7 @@ export function SidebarContent({
                   onToggle={() => toggle(major.id)}
                   onAddSub={() => startAdding(major.id)}
                   onRename={() => setEditingId(major.id)}
-                  onDelete={() => onDeleteCategory(major.id)}
+                  onDelete={(opts) => onDeleteCategory(major.id, opts)}
                 />
               )}
 
@@ -137,8 +148,9 @@ export function SidebarContent({
                       key={sub.id}
                       defaultValue={sub.name}
                       onSubmit={(name) => {
-                        onRenameCategory(sub.id, name);
-                        setEditingId(null);
+                        const ok = onRenameCategory(sub.id, name);
+                        if (ok !== false) setEditingId(null);
+                        return ok;
                       }}
                       onCancel={() => setEditingId(null)}
                     />
@@ -151,7 +163,7 @@ export function SidebarContent({
                       active={selected === sub.id}
                       onClick={() => onSelect(sub.id)}
                       onRename={() => setEditingId(sub.id)}
-                      onDelete={() => onDeleteCategory(sub.id)}
+                      onDelete={(opts) => onDeleteCategory(sub.id, opts)}
                     />
                   )
                 )}
@@ -159,9 +171,10 @@ export function SidebarContent({
               {addingTo === major.id && (
                 <InlineInput
                   placeholder="새 세부주제 이름"
-                  onSubmit={(name) => {
-                    onAddCategory(major.id, name);
-                    setAddingTo(null);
+                  onSubmit={async (name) => {
+                    const ok = await onAddCategory(major.id, name);
+                    if (ok) setAddingTo(null);
+                    return ok;
                   }}
                   onCancel={() => setAddingTo(null)}
                 />
@@ -243,16 +256,92 @@ function NavRow({ icon: Icon, label, count, active, onClick, trailing }) {
   );
 }
 
-// 대분류(주제) 행: 세부주제 추가·펼치기 + 이름 변경·삭제 메뉴
+// 카테고리 관리 메뉴: 이름 변경 + 삭제.
+// 링크가 있으면 삭제 시 처리 방법을 고르게 한다 — 보존(이동)이 안전한 기본이라 먼저 놓는다.
+// keepTarget: 링크 보존 시 이동할 곳 이름. null이면(기타 대분류) 보존 이동 불가.
+function CategoryMenu({ onClose, onRename, onDelete, linkCount, childCount = 0, keepTarget }) {
+  const [view, setView] = useState("root"); // root | delete
+
+  return (
+    <>
+      <div className="fixed inset-0 z-20" onClick={onClose} />
+      <div className="absolute right-2 top-8 z-30 w-56 rounded-xl border border-line bg-surface p-1 shadow-lg">
+        {view === "root" ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onRename();
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-ink-sub hover:bg-gray-50"
+            >
+              <Pencil size={14} />
+              이름 변경
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                // 링크도 하위도 없으면 고를 것이 없다 — 바로 삭제
+                if (linkCount === 0 && childCount === 0) {
+                  onClose();
+                  onDelete({ deleteLinks: false });
+                  return;
+                }
+                setView("delete");
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-red-500 hover:bg-red-50"
+            >
+              <Trash2 size={14} />
+              삭제
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="px-2.5 pb-1.5 pt-2 text-xs leading-relaxed text-ink-weak">
+              {childCount > 0 && (
+                <>
+                  세부주제 {childCount}개도 함께 삭제돼요.
+                  <br />
+                </>
+              )}
+              {linkCount > 0 ? `안에 있는 링크 ${linkCount}개는 어떻게 할까요?` : "정말 삭제할까요?"}
+            </p>
+            {linkCount > 0 && keepTarget && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onDelete({ deleteLinks: false });
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-ink-sub hover:bg-gray-50"
+              >
+                <FolderInput size={14} className="shrink-0" />
+                링크는 {withRo(keepTarget)} 옮기고 삭제
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onDelete({ deleteLinks: true });
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-red-500 hover:bg-red-50"
+            >
+              <Trash2 size={14} className="shrink-0" />
+              {linkCount > 0 ? `링크 ${linkCount}개도 함께 삭제` : "삭제"}
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+// 대분류(주제) 행: 세부주제 추가·펼치기 + 관리 메뉴
 function MajorRow({ major, count, active, isOpen, onClick, onToggle, onAddSub, onRename, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const Icon = majorIcon(major);
-
-  const closeMenu = () => {
-    setMenuOpen(false);
-    setConfirming(false);
-  };
 
   return (
     <div className="relative">
@@ -286,37 +375,14 @@ function MajorRow({ major, count, active, isOpen, onClick, onToggle, onAddSub, o
       />
 
       {menuOpen && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={closeMenu} />
-          <div className="absolute right-2 top-8 z-30 w-52 rounded-xl border border-line bg-surface p-1 shadow-lg">
-            <button
-              type="button"
-              onClick={() => {
-                closeMenu();
-                onRename();
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-ink-sub hover:bg-gray-50"
-            >
-              <Pencil size={14} />
-              이름 변경
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!confirming) {
-                  setConfirming(true);
-                  return;
-                }
-                closeMenu();
-                onDelete();
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-red-500 hover:bg-red-50"
-            >
-              <Trash2 size={14} className="shrink-0" />
-              {confirming ? `한 번 더 누르면 삭제 (링크는 ${FALLBACK_TOPIC}로)` : "삭제"}
-            </button>
-          </div>
-        </>
+        <CategoryMenu
+          onClose={() => setMenuOpen(false)}
+          onRename={onRename}
+          onDelete={onDelete}
+          linkCount={count}
+          childCount={major.children.length}
+          keepTarget={major.name === FALLBACK_TOPIC ? null : FALLBACK_TOPIC}
+        />
       )}
     </div>
   );
@@ -324,12 +390,6 @@ function MajorRow({ major, count, active, isOpen, onClick, onToggle, onAddSub, o
 
 function SubRow({ sub, majorName, count, active, onClick, onRename, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-
-  const closeMenu = () => {
-    setMenuOpen(false);
-    setConfirming(false);
-  };
 
   return (
     <div className="relative">
@@ -367,37 +427,13 @@ function SubRow({ sub, majorName, count, active, onClick, onRename, onDelete }) 
       </div>
 
       {menuOpen && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={closeMenu} />
-          <div className="absolute right-2 top-8 z-30 w-44 rounded-xl border border-line bg-surface p-1 shadow-lg">
-            <button
-              type="button"
-              onClick={() => {
-                closeMenu();
-                onRename();
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-ink-sub hover:bg-gray-50"
-            >
-              <Pencil size={14} />
-              이름 변경
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!confirming) {
-                  setConfirming(true);
-                  return;
-                }
-                closeMenu();
-                onDelete();
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-red-500 hover:bg-red-50"
-            >
-              <Trash2 size={14} className="shrink-0" />
-              {confirming ? `한 번 더 누르면 삭제 (링크는 ${majorName}으로)` : "삭제"}
-            </button>
-          </div>
-        </>
+        <CategoryMenu
+          onClose={() => setMenuOpen(false)}
+          onRename={onRename}
+          onDelete={onDelete}
+          linkCount={count}
+          keepTarget={majorName}
+        />
       )}
     </div>
   );
@@ -405,11 +441,16 @@ function SubRow({ sub, majorName, count, active, onClick, onRename, onDelete }) 
 
 function InlineInput({ defaultValue = "", placeholder, onSubmit, onCancel, indent = true }) {
   const [value, setValue] = useState(defaultValue);
+  const [duplicate, setDuplicate] = useState(false); // 같은 이름이 이미 있어 저장 거부됨
 
-  const submit = () => {
+  const submit = async () => {
     const name = value.trim();
-    if (name) onSubmit(name);
-    else onCancel();
+    if (!name) {
+      onCancel(); // 빈 이름은 저장하지 않는다
+      return;
+    }
+    const ok = await onSubmit(name);
+    if (ok === false) setDuplicate(true); // 입력을 유지하고 안내
   };
 
   return (
@@ -417,15 +458,21 @@ function InlineInput({ defaultValue = "", placeholder, onSubmit, onCancel, inden
       <input
         autoFocus
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setDuplicate(false);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") submit();
           if (e.key === "Escape") onCancel();
         }}
         onBlur={submit}
         placeholder={placeholder}
-        className="w-full rounded-lg border border-primary bg-surface px-2.5 py-1.5 text-sm outline-none placeholder:text-ink-weak"
+        className={`w-full rounded-lg border bg-surface px-2.5 py-1.5 text-sm outline-none placeholder:text-ink-weak ${
+          duplicate ? "border-red-300" : "border-primary"
+        }`}
       />
+      {duplicate && <p className="mt-1 px-0.5 text-xs text-red-500">이미 있는 이름이에요</p>}
     </div>
   );
 }
